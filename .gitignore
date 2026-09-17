@@ -1,0 +1,43 @@
+# Collected data — never commit (large, and contains imagery of a public street)
+data/
+*.mp4
+*.mkv
+
+# Model weights (re-downloaded on demand)
+*.pt
+*.onnx
+*.engine
+
+# Generated camera/zone calibration is kept (small, valuable) — see config/
+# but scratch output is not
+scratch/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# --- Local-only data. Deliberately untracked. ---------------------------------
+# This repo carries source and documentation only. Everything below is either
+# imagery of a public street (identifiable people, vehicles and plates), or
+# site-specific state that regenerates itself, so none of it belongs in a clone.
+
+# Reference crops and review decisions: derived from captures-manual/, and the
+# crops show identifiable vehicles and plates. Keep a local backup — the triage
+# thresholds in config/site.yaml were measured against these.
+reference/
+labels/
+
+# Original photos/videos of the enforcement fleet. Irreplaceable, but large and
+# identifiable. Back these up outside git.
+captures-manual/
+
+# Site-specific, machine-generated, and self-healing:
+#   curb.yaml             auto-fitted from the first parked cars it sees
+#   curb_calibration.json re-derives from a few hours of traffic, and grows
+#                         without bound (121k samples / 2.8 MB after one day)
+config/curb.yaml
+config/curb_calibration.json
