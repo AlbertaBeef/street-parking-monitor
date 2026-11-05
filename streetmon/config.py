@@ -65,7 +65,8 @@ DEFAULTS: dict[str, Any] = {
         "crops": {
             "enabled": True,
             "max_per_track": 8,
-            "min_interval_sec": 2.0,
+            "min_interval_sec": 2.0,        # stationary vehicles
+            "min_interval_sec_moving": 0.0,  # moving: keep every sample
             "min_box_px": 48,
             "pad": 0.08,
             "jpeg_quality": 92,
@@ -86,7 +87,7 @@ DEFAULTS: dict[str, Any] = {
         "white_val_min": 165,
         "red_hue_lo": 8,        # hue wraps: <=8 or >=172 is red
         "red_hue_hi": 172,
-        "red_sat_min": 110,
+        "red_sat_min": 65,
         "red_val_min": 70,
         "band_top": 0.45,       # mid-body rows only: excludes brake lights
         "band_bottom": 0.85,
@@ -110,6 +111,12 @@ DEFAULTS: dict[str, Any] = {
         "min_duration_sec": 3.0,
         "min_stops_for_flag": 1,     # a mid-street pause is suspicious alone
         "expire_sec": 8.0,           # unseen this long => track is finished
+        # Event-trigger motion test (see tracks.py). A parked car's box
+        # flickers in extent; when it collapses the centroid lurches and reads
+        # as motion. Direction separates them: jitter wanders (straightness
+        # ~0.30), real motion is monotonic (~1.00).
+        "motion_straightness_min": 0.75,
+        "motion_confirm_samples": 2,
     },
     "curb": {
         # This street has no painted bays, so parking is modelled as intervals

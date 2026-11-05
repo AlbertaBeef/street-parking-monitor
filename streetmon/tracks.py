@@ -33,6 +33,20 @@ log = logging.getLogger(__name__)
 # Below this, a vehicle is treated as not moving at all.
 STATIONARY_BL_S = 0.05
 
+# A second, stricter motion test used only to open event clips.
+#
+# A parked car's detection box flickers in extent -- one measured example swung
+# between 900 and 2829 px wide -- and when it collapses the centroid lurches
+# hundreds of pixels, which the instantaneous speed test reads as motion. On
+# 2026-11-02 that produced 387 spurious event clips out of 542, 4.9 hours of
+# video in which nothing moved a single body-length.
+#
+# What separates the two is direction, not magnitude. Jitter wanders, so net
+# displacement over a few samples stays far below the path walked; real motion
+# is monotonic. Measured straightness (net/path over 4 steps): parked cars
+# 0.30, transiting vehicles 1.00.
+STRAIGHTNESS_SAMPLES = 4
+
 
 @dataclass
 class Sample:
@@ -67,7 +81,14 @@ class Track:
 
     # rolling kinematic state, updated as samples arrive
     speed_bl_s: float = 0.0
+    straightness: float = 0.0
+    # `moving` is deliberately sensitive: it drives crop capture and curb
+    # occupancy, where reacting late costs real data and a false trigger is
+    # cheap. `moving_confirmed` is deliberately strict: it opens event clips,
+    # where a false trigger costs minutes of video.
     moving: bool = False
+    moving_confirmed: bool = False
+    _recent_moving: list = field(default_factory=list)
 
     def add(self, ts: float, cx: float, cy: float, w: float, h: float,
             conf: float) -> None:
@@ -78,7 +99,24 @@ class Track:
         if len(self.samples) > 4000:
             del self.samples[1::2]
 
-    def update_speed(self, min_dt: float = 0.5) -> None:
+    def _straightness(self, k: int = STRAIGHTNESS_SAMPLES) -> float:
+        """Net displacement divided by path walked, over the last k steps.
+
+        ~1.0 for a vehicle going somewhere, ~0.3 for a stationary box jittering
+        about its mean. This is what tells a parked car apart from a moving one
+        without needing a long observation window -- which matters, because a
+        vehicle can cross this frame in under two seconds.
+        """
+        seg = self.samples[-(k + 1):]
+        if len(seg) < 3:
+            return 0.0
+        net = math.hypot(seg[-1].cx - seg[0].cx, seg[-1].cy - seg[0].cy)
+        path = sum(math.hypot(seg[i].cx - seg[i - 1].cx, seg[i].cy - seg[i - 1].cy)
+                   for i in range(1, len(seg)))
+        return (net / path) if path > 0 else 0.0
+
+    def update_speed(self, min_dt: float = 0.5, straight_min: float = 0.75,
+                     confirm_samples: int = 2) -> None:
         """Instantaneous speed over the last >=min_dt seconds, in BL/s."""
         if len(self.samples) < 2:
             return
@@ -97,6 +135,15 @@ class Track:
         bl = max(last.w, 1.0)
         self.speed_bl_s = (dist / bl) / dt
         self.moving = self.speed_bl_s >= STATIONARY_BL_S
+
+        self.straightness = self._straightness()
+        decision = self.moving and self.straightness >= straight_min
+        self._recent_moving.append(decision)
+        if len(self._recent_moving) > 8:
+            del self._recent_moving[:-8]
+        n = max(1, int(confirm_samples))
+        self.moving_confirmed = (len(self._recent_moving) >= n
+                                 and all(self._recent_moving[-n:]))
 
 
 def _segment_speeds(samples: list[Sample], min_dt: float = 0.4) -> list[float]:
@@ -249,7 +296,11 @@ class TrackRegistry:
         cx, cy = det.center
         bw, bh = det.wh
         tr.add(ts, cx, cy, float(bw), float(bh), float(det.conf))
-        tr.update_speed()
+        tr.update_speed(
+            straight_min=float(getattr(self.cfg.kinematic,
+                                       "motion_straightness_min", 0.75)),
+            confirm_samples=int(getattr(self.cfg.kinematic,
+                                        "motion_confirm_samples", 2)))
         tr.cls_name = det.name
         return tr
 

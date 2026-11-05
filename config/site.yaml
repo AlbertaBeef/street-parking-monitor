@@ -69,7 +69,12 @@ capture:
   crops:                  # per-vehicle cutouts — the training set for goal 2
     enabled: true
     max_per_track: 8
-    min_interval_sec: 2.0
+    min_interval_sec: 2.0        # stationary: crops 2 s apart are near-identical
+    min_interval_sec_moving: 0.0 # moving: keep every sample. A vehicle crossing
+                                 # the frame may be gone in under a second, and
+                                 # every sample is a different view. The confirmed
+                                 # sighting on 2026-09-18 transited in 0.73 s and
+                                 # the flat interval kept 1 of its 4 samples.
     min_box_px: 48        # at 1920 wide; scaled automatically with resolution
     pad: 0.08
     jpeg_quality: 92
@@ -93,7 +98,12 @@ triage:
   white_val_min: 165
   red_hue_lo: 8             # hue wraps the circle: <=8 or >=172 counts as red
   red_hue_hi: 172
-  red_sat_min: 110
+  red_sat_min: 65         # NOT 110. Tuned first on close-up phone photos, where
+                          # the stripe is sharp and saturated. On the real camera
+                          # — across the street, backlit, through glass — the same
+                          # stripe desaturates and each dash shrank to a 4-6 px
+                          # speck that the area filter discarded as noise. That
+                          # cost a confirmed sighting on 2026-09-18 16:32.
   red_val_min: 70
   band_top: 0.45            # mid-body rows only -- excludes brake/tail lights
   band_bottom: 0.85
@@ -129,6 +139,14 @@ kinematic:
   min_duration_sec: 3.0
   min_stops_for_flag: 1     # a mid-street stop is suspicious on its own
   expire_sec: 8.0
+  # Event clips are opened only on *confirmed* motion: speed over threshold,
+  # travelling in a consistent direction, for this many consecutive samples.
+  # A stationary car's detection box flickers in extent (900..2829 px measured
+  # on one vehicle) and the centroid lurches when it collapses -- that produced
+  # 387 spurious clips out of 542 on 2026-11-02, 4.9 h of video of nothing.
+  # Straightness (net displacement / path walked): parked 0.30, moving 1.00.
+  motion_straightness_min: 0.75
+  motion_confirm_samples: 2     # 3 would drop a 1.7 s transit entirely
 
 curb:
   # No painted bays on this street: parking is modelled as intervals along a

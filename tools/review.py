@@ -19,6 +19,9 @@ Keys
     v      play the event clip this track appears in
     a / <-  previous track        d / ->  next track
     f       jump to the next unlabelled track
+    R       mark this track's DAY as reviewed in full -- records that the day
+            was examined and how many positives it held, so "checked and empty"
+            is distinguishable from "never looked at"
     q/ESC  quit (labels are saved as you go, not on exit)
 
 Labels append to labels/labels.jsonl. Nothing is overwritten: relabelling adds
@@ -40,7 +43,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from streetmon.config import load_config
-from streetmon.labels import LabelStore, NOT_POLICE, POLICE, UNSURE
+from streetmon.labels import LabelStore, ReviewLog, NOT_POLICE, POLICE, UNSURE
 from streetmon.triage import analyse
 
 WINDOW = "review — y=police  n=not  u=unsure  v=clip  a/d=prev/next  q=quit"
@@ -157,7 +160,7 @@ def filmstrip(paths: list[Path], cfg, height: int, width: int) -> np.ndarray:
 
 
 def info_panel(rec: dict, label: str | None, idx: int, total: int,
-               counts: dict, height: int) -> np.ndarray:
+               counts: dict, height: int, day_reviewed: dict | None = None) -> np.ndarray:
     import datetime as dt
     p = np.full((height, PANEL_W, 3), 18, np.uint8)
     y = [28]
@@ -204,7 +207,10 @@ def info_panel(rec: dict, label: str | None, idx: int, total: int,
 
     line(f"police {counts.get(POLICE, 0)}   not {counts.get(NOT_POLICE, 0)}   "
          f"unsure {counts.get(UNSURE, 0)}", (170, 170, 170), 0.46, 24)
-    line("y police   n not   u unsure", (140, 140, 140), 0.44, 20)
+    if day_reviewed:
+        line(f"day {day_reviewed['day']} marked reviewed "
+             f"({day_reviewed['positives']} positive)", (0, 200, 120), 0.44, 20)
+    line("y police   n not   u unsure   R day done", (140, 140, 140), 0.44, 20)
     line("v clip   a/d prev/next   f next new", (140, 140, 140), 0.44, 20)
     line("q quit", (140, 140, 140), 0.44)
     return p
@@ -287,6 +293,11 @@ def main() -> int:
     ap.add_argument("--relabel", action="store_true",
                     help="include tracks already labelled")
     ap.add_argument("--height", type=int, default=560)
+    ap.add_argument("--mark-reviewed", action="store_true",
+                    help="record every day in scope as reviewed in full, then "
+                         "exit (for a review already done by eye)")
+    ap.add_argument("--reviews", action="store_true",
+                    help="print the day-level review log and exit")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -305,7 +316,36 @@ def main() -> int:
                         or r.get("triage", {}).get("colour_candidate"))
         tracks = [r for r in tracks if is_cand(r)]
 
+    reviews = ReviewLog.load()
+
+    if args.reviews:
+        rows = reviews.summary()
+        if not rows:
+            print("no days recorded as reviewed yet.")
+            return 0
+        print(f"{'day':>12}{'tracks':>9}{'positives':>11}{'scope':>8}  reviewed")
+        for r_ in rows:
+            print(f"{r_['day']:>12}{r_['tracks_examined']:>9}{r_['positives']:>11}"
+                  f"{r_['scope']:>8}  {r_['reviewed']}")
+        return 0
+
     store = LabelStore.load()
+    if args.mark_reviewed:
+        by_day: dict[str, int] = {}
+        for rec in tracks:
+            by_day[rec["_session"].split("/")[0]] = \
+                by_day.get(rec["_session"].split("/")[0], 0) + 1
+        scope = "all" if args.all else ("kinematic" if args.kinematic
+                                        else "colour" if args.colour else "candidates")
+        for day, n in sorted(by_day.items()):
+            pos = sum(1 for rec in tracks
+                      if rec["_session"].split("/")[0] == day
+                      and store.get(rec["_session"], rec["id"]) == POLICE)
+            rec_ = reviews.record(day, n, pos, scope=scope)
+            print(f"  recorded {day}: {n} tracks examined, {pos} positive(s), scope={scope}")
+        print(f"\nwritten to {reviews.path}")
+        return 0
+
     if not args.relabel:
         tracks = [r for r in tracks
                   if store.get(r["_session"], r["id"]) in (None, UNSURE)]
@@ -330,7 +370,8 @@ def main() -> int:
         label = store.get(rec["_session"], rec["id"])
         view = np.hstack([
             filmstrip(rec["_crops"], cfg, args.height, strip_w),
-            info_panel(rec, label, idx, len(tracks), store.counts(), args.height),
+            info_panel(rec, label, idx, len(tracks), store.counts(), args.height,
+                       reviews.get(rec["_session"].split("/")[0])),
         ])
         cv2.imshow(WINDOW, view)
 
@@ -368,6 +409,14 @@ def main() -> int:
                 print("  no further unlabelled tracks")
             else:
                 idx = nxt
+        elif key == ord("R"):
+            day = rec["_session"].split("/")[0]
+            same = [x for x in tracks if x["_session"].split("/")[0] == day]
+            pos = sum(1 for x in same
+                      if store.get(x["_session"], x["id"]) == POLICE)
+            reviews.record(day, len(same), pos,
+                           scope="all" if args.all else "candidates")
+            print(f"  marked {day} reviewed: {len(same)} tracks, {pos} positive(s)")
         elif key == ord("v"):
             eid = rec.get("_event")
             if not eid:

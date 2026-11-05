@@ -246,6 +246,7 @@ def main() -> int:
     next_timelapse = start
     next_status = start + args.status_sec
     last_dets: list = []
+    display_ok = bool(args.display)
     flagged_ids: set[int] = set()
     seen_vehicle_ids: set[int] = set()
     sample_count = 0
@@ -330,7 +331,9 @@ def main() -> int:
                                 and now >= new_vehicle_grace_until):
                             new_vehicle = True
                         seen_vehicle_ids.add(d.track_id)
-                    if tr.moving and detector.is_vehicle(d):
+                    # Event clips use the strict test; crops and curb
+                    # occupancy below keep using the sensitive `tr.moving`.
+                    if tr.moving_confirmed and detector.is_vehicle(d):
                         any_moving = True
                     elif tr.moving and d.cls_id == 0 and ev.trigger_on_person:
                         # An enforcement officer inspects on foot as well as
@@ -355,7 +358,16 @@ def main() -> int:
                         continue
                     if tr.crops_saved >= int(crops_cfg.max_per_track):
                         continue
-                    if ts - tr.last_crop_ts < float(crops_cfg.min_interval_sec):
+                    # Rate-limit by novelty, not by clock. A parked car's crops
+                    # are near-identical two seconds apart, so throttling them
+                    # costs nothing. A vehicle crossing the frame gives a
+                    # genuinely different view every sample — and may be gone in
+                    # under a second. The confirmed enforcement sighting on
+                    # 2026-09-18 transited in 0.73 s across 4 samples, and the
+                    # flat 2 s interval kept only the first of them.
+                    interval = (float(crops_cfg.min_interval_sec_moving)
+                                if tr.moving else float(crops_cfg.min_interval_sec))
+                    if ts - tr.last_crop_ts < interval:
                         continue
 
                     crop = crop_box(frame, d.xyxy, float(crops_cfg.pad))
@@ -533,29 +545,38 @@ def main() -> int:
                     store.save_timelapse(ts, tl)
 
             # --- preview ---------------------------------------------------
-            if args.display:
-                view = frame.copy()
-                if curbs is not None and curb_states:
-                    curbs.draw(view, curb_states)
-                if last_dets:
-                    draw_detections(view, last_dets, flagged_ids)
-                curb_line = "  ".join(
-                    f"{s.name}: {s.free_m:.1f}m free, {len(s.parkable(float(cfg.curb.min_gap_m)))} parkable"
-                    for s in curb_states) or "fitting curb lines..."
-                draw_hud(view, [
-                    f"{wall:%Y-%m-%d %H:%M:%S}  [{'ACTIVE' if active else 'idle'}]",
-                    curb_line,
-                    f"tracks {len(registry.live)} live / {registry.completed} done"
-                    f"   event {event['id'] if event else '-'}",
-                    f"candidates: colour {colour_hits} / kinematic "
-                    f"{registry.kinematic_hits}",
-                ])
-                w = min(1280, view.shape[1])
-                cv2.imshow("street-parking-monitor",
-                           cv2.resize(view, (w, int(view.shape[0] * w / view.shape[1]))))
-                if (cv2.waitKey(1) & 0xFF) in (ord("q"), 27):
-                    log.info("quit key pressed")
-                    break
+            # The window is a convenience; collection is not. Started at boot
+            # by systemd there is no X session yet, so the first imshow fails.
+            # Degrade to headless once and carry on rather than taking the
+            # collector down with it.
+            if args.display and display_ok:
+                try:
+                    view = frame.copy()
+                    if curbs is not None and curb_states:
+                        curbs.draw(view, curb_states)
+                    if last_dets:
+                        draw_detections(view, last_dets, flagged_ids)
+                    curb_line = "  ".join(
+                        f"{s.name}: {s.free_m:.1f}m free, {len(s.parkable(float(cfg.curb.min_gap_m)))} parkable"
+                        for s in curb_states) or "fitting curb lines..."
+                    draw_hud(view, [
+                        f"{wall:%Y-%m-%d %H:%M:%S}  [{'ACTIVE' if active else 'idle'}]",
+                        curb_line,
+                        f"tracks {len(registry.live)} live / {registry.completed} done"
+                        f"   event {event['id'] if event else '-'}",
+                        f"candidates: colour {colour_hits} / kinematic "
+                        f"{registry.kinematic_hits}",
+                    ])
+                    w = min(1280, view.shape[1])
+                    cv2.imshow("street-parking-monitor",
+                               cv2.resize(view, (w, int(view.shape[0] * w / view.shape[1]))))
+                    if (cv2.waitKey(1) & 0xFF) in (ord("q"), 27):
+                        log.info("quit key pressed")
+                        break
+                except cv2.error as exc:
+                    display_ok = False
+                    log.warning("preview unavailable (%s) — continuing headless",
+                                str(exc).strip().splitlines()[0][:90])
 
             # --- status ----------------------------------------------------
             if now >= next_status:
