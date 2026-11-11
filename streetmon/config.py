@@ -36,7 +36,7 @@ DEFAULTS: dict[str, Any] = {
         "imgsz": 960,
         "conf": 0.30,
         "iou": 0.50,
-        "tracker": "bytetrack.yaml",
+        "tracker": "config/bytetrack-street.yaml",
         # NMS uses IoU and cannot see containment, so a slice of one car
         # detected as a second car survives it. These clean that up.
         "nested_contained_min": 0.80,  # fraction of the inner box inside the outer

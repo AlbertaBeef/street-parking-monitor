@@ -1,0 +1,13 @@
+# Where background removal starts, drawn by hand in
+# tools/mask_editor.py. Everything ABOVE this line is blacked
+# out except vehicles and people, which segmentation keeps.
+# Coordinates are pixels at `frame_size` and rescale with it.
+frame_size:
+- 1920
+- 1080
+margin: 18
+points:
+- - -14.08
+  - 215.23131672597864
+- - 1935.36
+  - 262.6334519572954

@@ -34,7 +34,12 @@ detector:
   imgsz: 960
   conf: 0.30
   iou: 0.50
-  tracker: bytetrack.yaml
+  tracker: config/bytetrack-street.yaml   # NOT stock bytetrack.yaml: track_buffer
+                                          # raised 30 -> 120. At 4 Hz the stock
+                                          # value retires a parked car's track in
+                                          # ~1 s of real time, so a flickering box
+                                          # comes back as a new vehicle. One
+                                          # Subaru produced 560 ids in a day.
   # Standard NMS uses IoU, which is blind to containment: a roofline slice
   # detected as its own car scored IoU 0.187 against the real car but was 94%
   # inside it, so NMS kept both. These two filters remove that artifact.

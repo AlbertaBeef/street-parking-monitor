@@ -19,7 +19,7 @@ Keys
     v      play the event clip this track appears in
     a / <-  previous track        d / ->  next track
     f       jump to the next unlabelled track
-    R       mark this track's DAY as reviewed in full -- records that the day
+    r       mark this track's DAY as reviewed in full -- records that the day
             was examined and how many positives it held, so "checked and empty"
             is distinguishable from "never looked at"
     q/ESC  quit (labels are saved as you go, not on exit)
@@ -210,7 +210,7 @@ def info_panel(rec: dict, label: str | None, idx: int, total: int,
     if day_reviewed:
         line(f"day {day_reviewed['day']} marked reviewed "
              f"({day_reviewed['positives']} positive)", (0, 200, 120), 0.44, 20)
-    line("y police   n not   u unsure   R day done", (140, 140, 140), 0.44, 20)
+    line("y police   n not   u unsure   r day done", (140, 140, 140), 0.44, 20)
     line("v clip   a/d prev/next   f next new", (140, 140, 140), 0.44, 20)
     line("q quit", (140, 140, 140), 0.44)
     return p
@@ -409,7 +409,10 @@ def main() -> int:
                 print("  no further unlabelled tracks")
             else:
                 idx = nxt
-        elif key == ord("R"):
+        elif key == ord("r"):
+            # lowercase on purpose: ord("R") is 82, which is also OpenCV's
+            # UP-arrow code on Linux -- so the old binding was unreachable by
+            # Shift+R and would have fired on an arrow key instead
             day = rec["_session"].split("/")[0]
             same = [x for x in tracks if x["_session"].split("/")[0] == day]
             pos = sum(1 for x in same

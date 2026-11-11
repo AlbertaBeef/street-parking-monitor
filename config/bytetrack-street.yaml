@@ -1,0 +1,32 @@
+# ByteTrack tuned for this camera.
+#
+# The stock bytetrack.yaml assumes ~30 fps video. We sample the detector at
+# 4 Hz, so every frame-counted parameter means 7.5x more wall-clock time than
+# the defaults were chosen for -- and `track_buffer`, which decides how long a
+# lost track stays revivable, is the one that matters here.
+#
+# A parked car's detection box flickers badly (measured: 900..2829 px wide on
+# one vehicle). When it collapses, or a passing van occludes it, the track is
+# dropped; if it is not revived it returns as a NEW vehicle. On 2026-11-09 a
+# single parked Subaru produced 560 track ids and 1908 crops, and 62% of the
+# day's vehicle tracks were sub-10-second fragments of stationary cars. That
+# floods the manual review queue, which is the project's real bottleneck.
+#
+# Measured on 2026-11-09 09:00-12:00 (real traffic), varying only track_buffer:
+#     buffer   ids   frag%   transits
+#         30   469     86%      15      (stock)
+#         60   324     74%      15
+#         80   282     67%      15
+#        120   228     61%      15
+# Transit count is unchanged at every value -- a longer buffer does NOT glue
+# passing vehicles onto parked tracks, which was the risk worth checking. It
+# only stops re-issuing ids to a car that never left.
+tracker_type: bytetrack
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 120        # NOT 30. See above.
+match_thresh: 0.8        # a DISTANCE threshold (1-IoU): lower is stricter.
+                         # Sweeping it changed nothing; 0.8 already accepts
+                         # IoU >= 0.2, which the box flicker clears.
+fuse_score: True
